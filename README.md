@@ -1,185 +1,142 @@
 # CyGlobsGL
 
-CyGlobsGL is a small pure-Python software graphics API that demonstrates the classic rendering pipeline from vertex data to a final framebuffer image.
+CyGlobsGL is an open, pure-Python graphics library inspired by the programmable structure of OpenGL. It exposes a readable software-rendering pipeline for vertices, indexed primitives, shaders, rasterization, depth testing, wireframes, and framebuffer output.
 
-The project is designed as a readable foundation for learning how a graphics pipeline works before moving into GPU APIs such as OpenGL, Vulkan, DirectX, WebGPU, or Metal.
+The project treats graphics commands as compact, inspectable data. Directives can be encoded with bit-field packing, viewed or modified as hexadecimal bytes, decoded into transforms, and executed through a Model–View–Projection pipeline.
 
-## Render Pipeline
+## Directive Contract
 
-CyGlobsGL follows five main steps:
+```c
+#ifndef CYGLOBSGL_SORT_IO
+#define CYGLOBSGL_SORT_IO
+
+Sort(io)      -> Jecht;
+Translate(io) -> Daq;
+Rotate(io)    -> MVP;
+Scale(io)     -> Cap;
+
+#endif
+```
+
+The names are domain labels with precise runtime meanings:
+
+| Directive | Domain | Runtime meaning |
+|---|---|---|
+| `Sort` | `Jecht` | Deterministically order vertices, indices, commands, or contingencies. |
+| `Translate` | `Daq` | Apply positional displacement to model data. |
+| `Rotate` | `MVP` | Apply rotation inside the Model–View–Projection transform chain. |
+| `Scale` | `Cap` | Apply bounded scale, including the default radius constraint. |
+
+## Domain Rule
+
+> Draw in a vector to Directives, or at a radius of `0.62`, into the clip space of a Model–View–Projection matrix, injecting inanimate objects as contingencies to wireframes.
+
+In concrete API terms:
+
+1. An inanimate object is represented by vertices and indices.
+2. A `Contingency` supplies a fallback wireframe representation.
+3. A `DirectivePacket` packs operation, flags, and parameters into bytes.
+4. The packet is inspectable as hexadecimal and decoded without `eval` or executable payloads.
+5. Model, view, and projection matrices transform vertices into clip space.
+6. Clipping, perspective division, viewport conversion, and rasterization produce framebuffer pixels.
+
+## Pipeline
 
 ```text
-Vertex Data
-   ↓
-Vertex Shader
-   ↓
-Clip-Space Coordinates
-   ↓
-Primitive Assembly
-   ↓
-Triangles
-   ↓
-Rasterization
-   ↓
-Fragments
-   ↓
-Fragment Shader
-   ↓
-Framebuffer
-   ↓
-PNG Output
+Object / Contingency
+        |
+        v
+Directive packets: Sort -> Translate -> Rotate -> Scale
+        |
+        v
+Vertex processing -> Model -> View -> Projection
+        |
+        v
+Clip space -> clipping -> NDC -> viewport
+        |
+        v
+Primitive assembly -> wireframe or triangles
+        |
+        v
+Rasterization -> fragment shader -> depth test -> framebuffer
 ```
 
-## Features
+## Bit-Field Packet
 
-- Pure Python software renderer
-- Programmable vertex shader hook
-- Programmable fragment shader hook
-- Clip-space to screen-space conversion
-- Triangle primitive assembly
-- Barycentric triangle rasterization
-- Interpolated vertex colors
-- Depth buffer testing
-- RGBA framebuffer
-- PNG image export through Pillow
-- Example glowing triangle render
-
-## Files
+CyGlobsGL uses an eight-byte directive packet:
 
 ```text
-mini_graphics_api.py   Core graphics API and demo renderer
-README.md              Project documentation
+byte 0: [ opcode:4 | flags:4 ]
+byte 1: object identifier
+byte 2-3: signed X parameter, Q8.8 fixed point
+byte 4-5: signed Y parameter, Q8.8 fixed point
+byte 6-7: signed Z parameter, Q8.8 fixed point
 ```
 
-## Requirements
+Opcodes:
 
-Python 3.9 or newer is recommended.
-
-Install Pillow for PNG output:
-
-```bash
-pip install pillow
+```text
+0x1 Sort      / Jecht
+0x2 Translate / Daq
+0x3 Rotate    / MVP
+0x4 Scale     / Cap
 ```
 
-## Run the Demo
+Example:
 
-Clone the repo:
+```python
+from cyglobsgl.directives import Directive, DirectivePacket, Opcode
+
+packet = DirectivePacket(
+    directive=Directive(Opcode.SCALE, object_id=7, x=0.62, y=0.62, z=0.62)
+)
+
+raw = packet.pack()
+print(raw.hex())
+restored = DirectivePacket.unpack(raw)
+```
+
+## Quick Start
 
 ```bash
 git clone https://github.com/somsung46810-collab/CyGlobsGL.git
 cd CyGlobsGL
-```
-
-Run the renderer:
-
-```bash
+python -m pip install -e .
 python mini_graphics_api.py
 ```
 
-The demo writes:
+The demo writes `render_output.png`.
+
+## Existing Renderer
+
+`mini_graphics_api.py` remains the reference software rasterizer and includes:
+
+- programmable vertex and fragment shader hooks
+- indexed triangle assembly
+- clip-space to screen-space conversion
+- barycentric rasterization
+- interpolated RGBA colors
+- depth buffering
+- PNG export through Pillow
+
+## Project Layout
 
 ```text
-render_output.png
+cyglobsgl/
+  __init__.py       Public package exports
+  directives.py     Directive domains and packed hexadecimal command format
+mini_graphics_api.py
+pyproject.toml
+LICENSE
+README.md
 ```
 
-## API Overview
+## Design Boundaries
 
-### Vertex Shader
+CyGlobsGL is an educational software renderer, not a drop-in implementation of the OpenGL specification. It does not claim OpenGL conformance, GPU acceleration, driver compatibility, or binary compatibility. Its API is intentionally open and extensible so additional backends can be implemented later for Vulkan, WebGPU, Metal, Direct3D, or native OpenGL.
 
-Transforms each vertex into clip-space coordinates.
-
-```python
-def default_vertex_shader(vertex, uniforms):
-    mvp = uniforms.get("mvp", identity_matrix())
-    return VertexOut(
-        clip_position=mat4_mul_vec4(mvp, vertex.position),
-        color=vertex.color,
-    )
-```
-
-### Primitive Assembly
-
-Connects vertices by index into triangle primitives.
-
-```python
-indices = [0, 1, 2]
-```
-
-### Rasterization
-
-Converts triangles into fragments using barycentric coordinates.
-
-### Fragment Shader
-
-Calculates the final color of each fragment.
-
-```python
-def glow_fragment_shader(fragment, uniforms):
-    r, g, b, a = fragment.color
-    glow = uniforms.get("glow", 1.25)
-    return (
-        int(clamp(r * glow, 0, 255)),
-        int(clamp(g * glow, 0, 255)),
-        int(clamp(b * glow, 0, 255)),
-        a,
-    )
-```
-
-### Framebuffer
-
-Stores the final rendered image and writes it to a PNG file.
-
-```python
-framebuffer.save_png("render_output.png")
-```
-
-## Example Usage
-
-```python
-from mini_graphics_api import (
-    Framebuffer,
-    GraphicsAPI,
-    ShaderProgram,
-    Vertex,
-    default_vertex_shader,
-    glow_fragment_shader,
-    rotation_z,
-)
-
-import math
-
-framebuffer = Framebuffer(256, 256)
-api = GraphicsAPI(framebuffer)
-
-api.use_shader(ShaderProgram(default_vertex_shader, glow_fragment_shader))
-api.set_uniform("mvp", rotation_z(math.radians(15)))
-api.set_uniform("glow", 1.35)
-
-vertices = [
-    Vertex(position=(-0.7, -0.6, 0.3, 1.0), color=(255, 60, 60, 255)),
-    Vertex(position=(0.7, -0.6, 0.3, 1.0), color=(60, 255, 90, 255)),
-    Vertex(position=(0.0, 0.7, 0.3, 1.0), color=(60, 150, 255, 255)),
-]
-
-api.draw_indexed(vertices, [0, 1, 2])
-framebuffer.save_png("render_output.png")
-```
-
-## Next Improvements
-
-Possible next steps:
-
-- Perspective projection matrix
-- Camera/view matrix
-- Texture sampling
-- Wireframe mode
-- Backface culling
-- OBJ mesh loading
-- Multiple draw calls
-- Scene graph
-- Animation loop
-- GIF or MP4 export
+Hex editing is limited to validated data packets. Packet decoding checks length, opcode, numeric representation, and finite values before a directive reaches the rendering pipeline.
 
 ## License
 
-No license has been added yet. Add a license file before distributing or reusing this project publicly.
+CyGlobsGL is released under the MIT License. See `LICENSE`.

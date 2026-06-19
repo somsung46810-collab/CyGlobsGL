@@ -139,4 +139,4 @@ Hex editing is limited to validated data packets. Packet decoding checks length,
 
 ## License
 
-CyGlobsGL is released under the MIT License. See `LICENSE`.
+CyGlobsGL is released under the GNU General Public License version 3 only (`GPL-3.0-only`). See `LICENSE`.
